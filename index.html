@@ -1,0 +1,1232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a0f1e" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="SkyWatch" />
+  <meta name="description" content="Personal flight price monitor for AKL routes" />
+  <title>SkyWatch — Flight Monitor</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --bg:        #040810;
+      --bg2:       #0a1020;
+      --bg3:       #101828;
+      --surface:   #111c30;
+      --surface2:  #162035;
+      --border:    rgba(99,179,255,0.12);
+      --border2:   rgba(99,179,255,0.22);
+      --accent:    #3b9eff;
+      --accent2:   #00d4ff;
+      --gold:      #f5c842;
+      --green:     #22e87a;
+      --red:       #ff4f6a;
+      --text:      #e8f0ff;
+      --text2:     #7a9abf;
+      --text3:     #3d5a7a;
+      --radius:    16px;
+      --radius-sm: 10px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Syne', sans-serif;
+      overflow-x: hidden;
+    }
+
+    /* ── NOISE TEXTURE ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none;
+    }
+
+    /* ── AURORA BG ── */
+    .aurora {
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      overflow: hidden;
+    }
+    .aurora-blob {
+      position: absolute; border-radius: 50%;
+      filter: blur(80px); opacity: 0.07;
+      animation: drift 18s ease-in-out infinite alternate;
+    }
+    .aurora-blob:nth-child(1) { width: 600px; height: 400px; background: #1a6fff; top: -100px; left: -100px; animation-duration: 20s; }
+    .aurora-blob:nth-child(2) { width: 400px; height: 500px; background: #00d4ff; top: 30%; right: -100px; animation-duration: 16s; animation-delay: -5s; }
+    .aurora-blob:nth-child(3) { width: 350px; height: 350px; background: #7b5ea7; bottom: 0; left: 20%; animation-duration: 22s; animation-delay: -10s; }
+    @keyframes drift { from { transform: translate(0,0) scale(1); } to { transform: translate(40px, 30px) scale(1.1); } }
+
+    /* ── LAYOUT ── */
+    #app {
+      position: relative; z-index: 1;
+      min-height: 100dvh;
+      display: flex; flex-direction: column;
+      max-width: 440px; margin: 0 auto;
+      padding: env(safe-area-inset-top, 0) 0 env(safe-area-inset-bottom, 0);
+    }
+
+    /* ── HEADER ── */
+    header {
+      padding: 24px 20px 0;
+      display: flex; align-items: flex-start; justify-content: space-between;
+    }
+    .logo {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .logo-icon {
+      width: 38px; height: 38px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      box-shadow: 0 0 20px rgba(59,158,255,0.35);
+    }
+    .logo-text { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; }
+    .logo-text span { color: var(--accent2); }
+
+    .header-meta { text-align: right; }
+    .header-date { font-size: 11px; color: var(--text3); font-family: 'Space Mono', monospace; text-transform: uppercase; letter-spacing: 0.08em; }
+    .header-status {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 11px; font-family: 'Space Mono', monospace;
+      color: var(--green); margin-top: 3px;
+    }
+    .pulse-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--green);
+      animation: pulse-glow 2s ease-in-out infinite;
+    }
+    .pulse-dot.idle { background: var(--text3); animation: none; }
+    .pulse-dot.loading { background: var(--gold); animation: pulse-glow 0.6s ease-in-out infinite; }
+    @keyframes pulse-glow {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34,232,122,0.4); }
+      50% { opacity: 0.7; box-shadow: 0 0 0 4px rgba(34,232,122,0); }
+    }
+
+    /* ── ORIGIN BADGE ── */
+    .origin-bar {
+      margin: 20px 20px 0;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    .origin-airport {
+      font-size: 28px; font-weight: 800; color: var(--accent2);
+      letter-spacing: -1px; line-height: 1;
+    }
+    .origin-label { font-size: 11px; color: var(--text3); font-family: 'Space Mono', monospace; margin-top: 2px; }
+    .origin-arrow { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text3); font-size: 20px; }
+    .origin-dest { text-align: right; }
+    .dest-chips { display: flex; flex-direction: column; gap: 5px; }
+    .dest-chip {
+      font-size: 13px; font-weight: 700;
+      background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 6px; padding: 3px 10px;
+      color: var(--text2); letter-spacing: 0.05em;
+      font-family: 'Space Mono', monospace;
+    }
+
+    /* ── MAIN SCROLL ── */
+    main { flex: 1; padding: 16px 20px 0; overflow-y: auto; }
+
+    /* ── SECTION HEADER ── */
+    .section-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .section-title {
+      font-size: 12px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.12em;
+      color: var(--text3);
+    }
+    .refresh-btn {
+      background: none; border: 1px solid var(--border); color: var(--text2);
+      border-radius: 8px; padding: 5px 12px; font-size: 11px; font-family: 'Space Mono', monospace;
+      cursor: pointer; display: flex; align-items: center; gap: 5px;
+      transition: all 0.2s;
+    }
+    .refresh-btn:active { background: var(--surface); transform: scale(0.97); }
+    .refresh-btn.spinning svg { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── FLIGHT CARD ── */
+    .flight-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px;
+      margin-bottom: 14px;
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.3s, transform 0.2s;
+      animation: card-in 0.5s ease both;
+    }
+    @keyframes card-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+    .flight-card::before {
+      content: '';
+      position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      opacity: 0; transition: opacity 0.3s;
+    }
+    .flight-card:hover { border-color: var(--border2); transform: translateY(-1px); }
+    .flight-card:hover::before { opacity: 1; }
+    .flight-card.deal { border-color: rgba(34,232,122,0.3); }
+    .flight-card.deal::before { background: linear-gradient(90deg, var(--green), #00ffcc); opacity: 1; }
+
+    .card-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 14px; }
+    .route-label {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .dest-badge {
+      font-size: 20px; font-weight: 800; color: var(--text);
+      letter-spacing: -0.5px; font-family: 'Space Mono', monospace;
+    }
+    .dest-name { font-size: 12px; color: var(--text3); margin-top: 2px; }
+
+    .price-block { text-align: right; }
+    .price-main {
+      font-size: 26px; font-weight: 800;
+      color: var(--text); letter-spacing: -1px; line-height: 1;
+    }
+    .price-main .currency { font-size: 14px; color: var(--text2); font-weight: 600; }
+    .price-change {
+      font-size: 11px; font-family: 'Space Mono', monospace;
+      margin-top: 3px; font-weight: 700;
+    }
+    .price-change.up { color: var(--red); }
+    .price-change.down { color: var(--green); }
+    .price-change.same { color: var(--text3); }
+
+    .card-details {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+      border-top: 1px solid var(--border); padding-top: 14px;
+    }
+    .detail-item { }
+    .detail-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.1em; font-family: 'Space Mono', monospace; }
+    .detail-value { font-size: 13px; font-weight: 600; color: var(--text2); margin-top: 3px; }
+    .detail-value.highlight { color: var(--text); }
+
+    .card-footer {
+      margin-top: 14px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .airline-tag {
+      font-size: 11px; font-family: 'Space Mono', monospace;
+      color: var(--text3); background: var(--bg3);
+      border: 1px solid var(--border); border-radius: 5px; padding: 3px 8px;
+    }
+    .deal-badge {
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;
+      background: rgba(34,232,122,0.12); color: var(--green);
+      border: 1px solid rgba(34,232,122,0.25); border-radius: 5px;
+      padding: 3px 9px;
+    }
+    .check-link {
+      font-size: 12px; font-weight: 700;
+      color: var(--accent); text-decoration: none;
+      display: flex; align-items: center; gap: 4px;
+      transition: color 0.2s;
+    }
+    .check-link:hover { color: var(--accent2); }
+
+    /* ── SKELETON ── */
+    .skeleton-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px; margin-bottom: 14px;
+    }
+    .skel {
+      background: linear-gradient(90deg, var(--surface) 25%, var(--surface2) 50%, var(--surface) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+      border-radius: 6px;
+    }
+    @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+    .skel-lg { height: 28px; width: 120px; margin-bottom: 14px; }
+    .skel-sm { height: 14px; width: 80px; margin-bottom: 8px; }
+    .skel-row { display: flex; gap: 10px; }
+    .skel-col { height: 40px; flex: 1; }
+
+    /* ── ALERT SECTION ── */
+    .alert-section { margin-top: 20px; }
+    .alert-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px 18px;
+      margin-bottom: 10px;
+      display: flex; align-items: center; gap: 14px;
+    }
+    .alert-icon {
+      width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; font-size: 18px;
+    }
+    .alert-icon.blr { background: rgba(59,158,255,0.15); }
+    .alert-icon.maa { background: rgba(245,200,66,0.12); }
+    .alert-body { flex: 1; min-width: 0; }
+    .alert-route { font-size: 13px; font-weight: 700; color: var(--text); }
+    .alert-threshold { font-size: 11px; color: var(--text3); font-family: 'Space Mono', monospace; margin-top: 2px; }
+    .alert-toggle {
+      position: relative; width: 44px; height: 24px; flex-shrink: 0;
+    }
+    .alert-toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+    .toggle-slider {
+      position: absolute; inset: 0; cursor: pointer;
+      background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 12px; transition: 0.3s;
+    }
+    .toggle-slider::after {
+      content: ''; position: absolute; width: 16px; height: 16px;
+      left: 3px; top: 50%; transform: translateY(-50%);
+      background: var(--text3); border-radius: 50%; transition: 0.3s;
+    }
+    .alert-toggle input:checked + .toggle-slider { background: rgba(34,232,122,0.15); border-color: rgba(34,232,122,0.4); }
+    .alert-toggle input:checked + .toggle-slider::after { transform: translate(20px, -50%); background: var(--green); box-shadow: 0 0 8px rgba(34,232,122,0.5); }
+
+    /* ── THRESHOLD INPUT ── */
+    .threshold-row {
+      display: flex; align-items: center; gap: 10px; margin-top: 8px;
+    }
+    .threshold-input {
+      background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+      border-radius: 8px; padding: 7px 12px; font-size: 13px; font-family: 'Space Mono', monospace;
+      width: 120px; outline: none; transition: border-color 0.2s;
+    }
+    .threshold-input:focus { border-color: var(--accent); }
+    .threshold-label { font-size: 11px; color: var(--text3); }
+
+    /* ── HISTORY CHART ── */
+    .chart-section { margin-top: 20px; margin-bottom: 20px; }
+    .chart-wrap {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px;
+      position: relative; overflow: hidden;
+    }
+    .chart-title { font-size: 12px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 14px; }
+    canvas#priceChart { width: 100% !important; }
+
+    /* ── LAST UPDATED BAR ── */
+    .last-updated {
+      text-align: center; font-size: 11px; color: var(--text3);
+      font-family: 'Space Mono', monospace; padding: 8px 20px 0;
+    }
+
+    /* ── SETTINGS SHEET ── */
+    .settings-fab {
+      position: fixed; bottom: calc(20px + env(safe-area-inset-bottom, 0)); right: 20px;
+      width: 52px; height: 52px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border: none; cursor: pointer; z-index: 100;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+      box-shadow: 0 4px 24px rgba(59,158,255,0.4);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .settings-fab:active { transform: scale(0.93); }
+
+    .sheet-overlay {
+      position: fixed; inset: 0; background: rgba(4,8,16,0.75);
+      z-index: 200; opacity: 0; pointer-events: none;
+      transition: opacity 0.3s; backdrop-filter: blur(4px);
+    }
+    .sheet-overlay.open { opacity: 1; pointer-events: all; }
+
+    .bottom-sheet {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      max-width: 440px; margin: 0 auto;
+      background: var(--bg2); border-top: 1px solid var(--border);
+      border-radius: 20px 20px 0 0;
+      padding: 0 20px calc(24px + env(safe-area-inset-bottom, 0));
+      z-index: 300;
+      transform: translateY(100%); transition: transform 0.35s cubic-bezier(0.32,0.72,0,1);
+    }
+    .bottom-sheet.open { transform: translateY(0); }
+    .sheet-handle {
+      width: 40px; height: 4px; background: var(--border2);
+      border-radius: 2px; margin: 12px auto 20px;
+    }
+    .sheet-title { font-size: 18px; font-weight: 800; margin-bottom: 20px; }
+
+    .setting-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 0; border-bottom: 1px solid var(--border);
+    }
+    .setting-label { font-size: 14px; font-weight: 600; color: var(--text); }
+    .setting-sub { font-size: 11px; color: var(--text3); margin-top: 3px; font-family: 'Space Mono', monospace; }
+
+    .interval-select {
+      background: var(--surface); border: 1px solid var(--border); color: var(--text);
+      border-radius: 8px; padding: 6px 10px; font-size: 12px; font-family: 'Space Mono', monospace;
+      outline: none; cursor: pointer;
+    }
+
+    /* ── TOAST ── */
+    .toast {
+      position: fixed; top: calc(20px + env(safe-area-inset-top, 0)); left: 50%;
+      transform: translateX(-50%) translateY(-80px);
+      background: var(--surface2); border: 1px solid var(--border2);
+      border-radius: 10px; padding: 10px 18px;
+      font-size: 13px; font-weight: 600; color: var(--text);
+      z-index: 500; white-space: nowrap;
+      transition: transform 0.35s cubic-bezier(0.34,1.56,0.64,1);
+      pointer-events: none;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+    .toast.success { border-color: rgba(34,232,122,0.4); color: var(--green); }
+    .toast.error { border-color: rgba(255,79,106,0.4); color: var(--red); }
+
+    /* ── EMPTY / ERROR STATES ── */
+    .empty-state {
+      text-align: center; padding: 40px 20px;
+      color: var(--text3); font-size: 13px; line-height: 1.6;
+    }
+    .empty-icon { font-size: 40px; margin-bottom: 12px; }
+
+    /* ── MONITOR STATUS BAR ── */
+    .monitor-bar {
+      margin: 16px 20px 0;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 10px 16px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .monitor-label { font-size: 11px; color: var(--text3); font-family: 'Space Mono', monospace; }
+    .monitor-next { font-size: 11px; color: var(--text2); font-family: 'Space Mono', monospace; }
+    #countdown-timer { color: var(--accent2); font-weight: 700; }
+
+    /* ── SCROLLBAR ── */
+    ::-webkit-scrollbar { width: 3px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+    /* ── TABS ── */
+    .tabs {
+      display: flex; gap: 8px; margin: 16px 20px 0;
+    }
+    .tab-btn {
+      flex: 1; background: var(--surface); border: 1px solid var(--border);
+      color: var(--text3); border-radius: 10px; padding: 9px 0;
+      font-size: 12px; font-weight: 700; font-family: 'Syne', sans-serif;
+      letter-spacing: 0.05em; cursor: pointer; transition: all 0.2s;
+    }
+    .tab-btn.active {
+      background: linear-gradient(135deg, rgba(59,158,255,0.15), rgba(0,212,255,0.1));
+      border-color: var(--accent); color: var(--accent2);
+    }
+
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+  </style>
+</head>
+<body>
+
+<div class="aurora">
+  <div class="aurora-blob"></div>
+  <div class="aurora-blob"></div>
+  <div class="aurora-blob"></div>
+</div>
+
+<div id="app">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">✈</div>
+      <div class="logo-text">Sky<span>Watch</span></div>
+    </div>
+    <div class="header-meta">
+      <div class="header-date" id="header-date">Loading...</div>
+      <div class="header-status">
+        <div class="pulse-dot idle" id="status-dot"></div>
+        <span id="status-text">Idle</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Origin bar -->
+  <div class="origin-bar">
+    <div>
+      <div class="origin-airport">AKL</div>
+      <div class="origin-label">Auckland, NZ</div>
+    </div>
+    <div class="origin-arrow">→</div>
+    <div class="origin-dest">
+      <div class="dest-chips">
+        <div class="dest-chip">BLR ✦ Bengaluru</div>
+        <div class="dest-chip">MAA ✦ Chennai</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Monitor bar -->
+  <div class="monitor-bar">
+    <div class="monitor-label">NEXT SCAN IN</div>
+    <div class="monitor-next"><span id="countdown-timer">--:--</span></div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('prices')">💺 Prices</button>
+    <button class="tab-btn" onclick="switchTab('alerts')">🔔 Alerts</button>
+    <button class="tab-btn" onclick="switchTab('history')">📈 History</button>
+  </div>
+
+  <!-- Main content -->
+  <main>
+
+    <!-- Prices Tab -->
+    <div class="tab-pane active" id="tab-prices">
+      <div class="section-header" style="margin-top:16px;">
+        <span class="section-title">Live Fares</span>
+        <button class="refresh-btn" id="refresh-btn" onclick="fetchFlights()">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <polyline points="1 4 1 10 7 10"></polyline>
+            <path d="M3.51 15a9 9 0 1 0 .49-5.05"></path>
+          </svg>
+          Refresh
+        </button>
+      </div>
+      <div id="flight-cards">
+        <!-- skeleton -->
+        <div class="skeleton-card">
+          <div class="skel skel-lg"></div>
+          <div class="skel skel-sm"></div>
+          <div class="skel-row"><div class="skel skel-col"></div><div class="skel skel-col"></div></div>
+        </div>
+        <div class="skeleton-card">
+          <div class="skel skel-lg"></div>
+          <div class="skel skel-sm"></div>
+          <div class="skel-row"><div class="skel skel-col"></div><div class="skel skel-col"></div></div>
+        </div>
+      </div>
+      <div class="last-updated" id="last-updated-text">Fetching current prices...</div>
+    </div>
+
+    <!-- Alerts Tab -->
+    <div class="tab-pane" id="tab-alerts">
+      <div style="margin-top:16px;">
+        <div class="section-title" style="margin-bottom:12px;">Price Alerts</div>
+
+        <div class="alert-card">
+          <div class="alert-icon blr">✈</div>
+          <div class="alert-body">
+            <div class="alert-route">AKL → BLR</div>
+            <div class="alert-threshold">Alert when below NZD <span id="blr-threshold-display">2200</span></div>
+            <div class="threshold-row">
+              <input type="number" class="threshold-input" id="blr-threshold" value="2200" min="500" max="5000" step="50" oninput="updateThreshold('blr')" />
+              <span class="threshold-label">NZD target</span>
+            </div>
+          </div>
+          <label class="alert-toggle">
+            <input type="checkbox" id="blr-alert-toggle" checked onchange="saveAlerts()" />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <div class="alert-card">
+          <div class="alert-icon maa">✈</div>
+          <div class="alert-body">
+            <div class="alert-route">AKL → MAA</div>
+            <div class="alert-threshold">Alert when below NZD <span id="maa-threshold-display">2000</span></div>
+            <div class="threshold-row">
+              <input type="number" class="threshold-input" id="maa-threshold" value="2000" min="500" max="5000" step="50" oninput="updateThreshold('maa')" />
+              <span class="threshold-label">NZD target</span>
+            </div>
+          </div>
+          <label class="alert-toggle">
+            <input type="checkbox" id="maa-alert-toggle" checked onchange="saveAlerts()" />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-item" style="margin-top: 10px;">
+          <div>
+            <div class="setting-label">Browser Notifications</div>
+            <div class="setting-sub">Get notified when price drops</div>
+          </div>
+          <button class="refresh-btn" onclick="requestNotificationPermission()">Enable</button>
+        </div>
+
+        <div class="setting-item">
+          <div>
+            <div class="setting-label">Scan Interval</div>
+            <div class="setting-sub">How often to check prices</div>
+          </div>
+          <select class="interval-select" id="interval-select" onchange="updateInterval()">
+            <option value="15">15 min</option>
+            <option value="30" selected>30 min</option>
+            <option value="60">1 hour</option>
+            <option value="120">2 hours</option>
+          </select>
+        </div>
+
+        <div class="setting-item">
+          <div>
+            <div class="setting-label">Travel Window</div>
+            <div class="setting-sub">Preferred month range</div>
+          </div>
+          <select class="interval-select" id="travel-window" onchange="saveTravelWindow()">
+            <option value="1">Next month</option>
+            <option value="2">Next 2 months</option>
+            <option value="3" selected>Next 3 months</option>
+            <option value="6">Next 6 months</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- History Tab -->
+    <div class="tab-pane" id="tab-history">
+      <div class="chart-section">
+        <div class="chart-wrap">
+          <div class="chart-title">Price History (last 7 checks)</div>
+          <canvas id="priceChart" height="160"></canvas>
+        </div>
+      </div>
+
+      <div class="section-title" style="margin-bottom:10px;">Check Log</div>
+      <div id="history-log">
+        <div class="empty-state">
+          <div class="empty-icon">📋</div>
+          No history yet. Prices will be logged here after each scan.
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Settings FAB -->
+<button class="settings-fab" onclick="toggleSheet()">⚙</button>
+
+<!-- Sheet overlay -->
+<div class="sheet-overlay" id="sheet-overlay" onclick="toggleSheet()"></div>
+
+<!-- Bottom Sheet -->
+<div class="bottom-sheet" id="bottom-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">About SkyWatch</div>
+
+  <div class="setting-item">
+    <div>
+      <div class="setting-label">Version</div>
+      <div class="setting-sub">SkyWatch PWA v1.0</div>
+    </div>
+    <span style="font-size:12px;color:var(--text3);font-family:'Space Mono',monospace;">stable</span>
+  </div>
+
+  <div class="setting-item">
+    <div>
+      <div class="setting-label">AI Engine</div>
+      <div class="setting-sub">Claude + Web Search</div>
+    </div>
+    <span style="font-size:12px;color:var(--accent2);font-family:'Space Mono',monospace;">active</span>
+  </div>
+
+  <div class="setting-item">
+    <div>
+      <div class="setting-label">Install on Android</div>
+      <div class="setting-sub">Chrome → ⋮ → Add to Home Screen</div>
+    </div>
+    <span style="font-size:18px;">📱</span>
+  </div>
+
+  <div class="setting-item" style="border-bottom:none;">
+    <div>
+      <div class="setting-label">Data Source</div>
+      <div class="setting-sub">Google Flights via AI search</div>
+    </div>
+  </div>
+
+  <button class="refresh-btn" style="width:100%;margin-top:16px;justify-content:center;padding:12px;" onclick="clearData()">
+    Clear All Data
+  </button>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Inline Chart.js (lightweight) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// SKYWATCH — CORE APP
+// ═══════════════════════════════════════════════════════
+
+const STATE = {
+  prices: { blr: null, maa: null },
+  history: JSON.parse(localStorage.getItem('sw_history') || '[]'),
+  alerts: JSON.parse(localStorage.getItem('sw_alerts') || '{"blr":{"enabled":true,"threshold":2200},"maa":{"enabled":true,"threshold":2000}}'),
+  settings: JSON.parse(localStorage.getItem('sw_settings') || '{"interval":30,"travelWindow":3}'),
+  lastFetch: null,
+  isFetching: false,
+  countdownInterval: null,
+  nextFetchAt: null,
+  chart: null,
+};
+
+// ── ROUTES ────────────────────────────────────────────
+const ROUTES = {
+  blr: { code: 'BLR', name: 'Bengaluru', city: 'Bangalore', country: 'India', emoji: '🇮🇳' },
+  maa: { code: 'MAA', name: 'Chennai',   city: 'Chennai',   country: 'India', emoji: '🇮🇳' },
+};
+
+// ── INIT ──────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  updateDateHeader();
+  loadAlertSettings();
+  loadIntervalSettings();
+  renderHistoryChart();
+  renderHistoryLog();
+
+  // First fetch
+  fetchFlights();
+
+  // Schedule recurring
+  scheduleNextFetch();
+
+  // Register SW
+  registerServiceWorker();
+});
+
+// ── SERVICE WORKER ────────────────────────────────────
+function registerServiceWorker() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      console.log('SW registered', reg.scope);
+    }).catch(err => console.warn('SW failed:', err));
+  }
+}
+
+// ── DATE HEADER ───────────────────────────────────────
+function updateDateHeader() {
+  const now = new Date();
+  document.getElementById('header-date').textContent =
+    now.toLocaleDateString('en-NZ', { weekday:'short', month:'short', day:'numeric' }).toUpperCase();
+}
+
+// ── TAB SWITCHING ─────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    if (b.textContent.toLowerCase().includes(tab === 'prices' ? '💺' : tab === 'alerts' ? '🔔' : '📈')) {
+      b.classList.add('active');
+    }
+  });
+  if (tab === 'history') { setTimeout(renderHistoryChart, 100); }
+}
+
+// ── TOAST ─────────────────────────────────────────────
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + type;
+  setTimeout(() => { t.className = 'toast'; }, 3000);
+}
+
+// ── SHEET ─────────────────────────────────────────────
+function toggleSheet() {
+  document.getElementById('bottom-sheet').classList.toggle('open');
+  document.getElementById('sheet-overlay').classList.toggle('open');
+}
+
+// ── SETTINGS ─────────────────────────────────────────
+function loadAlertSettings() {
+  document.getElementById('blr-threshold').value = STATE.alerts.blr.threshold;
+  document.getElementById('maa-threshold').value = STATE.alerts.maa.threshold;
+  document.getElementById('blr-threshold-display').textContent = STATE.alerts.blr.threshold;
+  document.getElementById('maa-threshold-display').textContent = STATE.alerts.maa.threshold;
+  document.getElementById('blr-alert-toggle').checked = STATE.alerts.blr.enabled;
+  document.getElementById('maa-alert-toggle').checked = STATE.alerts.maa.enabled;
+}
+
+function loadIntervalSettings() {
+  document.getElementById('interval-select').value = STATE.settings.interval;
+  document.getElementById('travel-window').value = STATE.settings.travelWindow;
+}
+
+function updateThreshold(dest) {
+  const val = parseInt(document.getElementById(dest + '-threshold').value) || 2000;
+  STATE.alerts[dest].threshold = val;
+  document.getElementById(dest + '-threshold-display').textContent = val;
+  saveAlerts();
+}
+
+function saveAlerts() {
+  STATE.alerts.blr.enabled = document.getElementById('blr-alert-toggle').checked;
+  STATE.alerts.maa.enabled = document.getElementById('maa-alert-toggle').checked;
+  localStorage.setItem('sw_alerts', JSON.stringify(STATE.alerts));
+  showToast('Alert settings saved ✓', 'success');
+}
+
+function updateInterval() {
+  STATE.settings.interval = parseInt(document.getElementById('interval-select').value);
+  localStorage.setItem('sw_settings', JSON.stringify(STATE.settings));
+  scheduleNextFetch();
+  showToast('Scan interval updated ✓', 'success');
+}
+
+function saveTravelWindow() {
+  STATE.settings.travelWindow = parseInt(document.getElementById('travel-window').value);
+  localStorage.setItem('sw_settings', JSON.stringify(STATE.settings));
+}
+
+function clearData() {
+  if (confirm('Clear all price history and settings?')) {
+    localStorage.clear();
+    STATE.history = [];
+    renderHistoryLog();
+    renderHistoryChart();
+    toggleSheet();
+    showToast('Data cleared', '');
+  }
+}
+
+// ── NOTIFICATIONS ─────────────────────────────────────
+function requestNotificationPermission() {
+  if (!('Notification' in window)) {
+    showToast('Notifications not supported', 'error');
+    return;
+  }
+  Notification.requestPermission().then(perm => {
+    if (perm === 'granted') showToast('Notifications enabled! ✓', 'success');
+    else showToast('Permission denied', 'error');
+  });
+}
+
+function sendNotification(title, body) {
+  if (Notification.permission === 'granted') {
+    new Notification(title, { body, icon: 'icons/icon-192.png', badge: 'icons/icon-72.png' });
+  }
+}
+
+// ── COUNTDOWN TIMER ───────────────────────────────────
+function scheduleNextFetch() {
+  if (STATE.countdownInterval) clearInterval(STATE.countdownInterval);
+  const intervalMs = STATE.settings.interval * 60 * 1000;
+  STATE.nextFetchAt = Date.now() + intervalMs;
+
+  STATE.countdownInterval = setInterval(() => {
+    const remaining = STATE.nextFetchAt - Date.now();
+    if (remaining <= 0) {
+      fetchFlights();
+      STATE.nextFetchAt = Date.now() + intervalMs;
+    }
+    const mins = Math.floor(remaining / 60000);
+    const secs = Math.floor((remaining % 60000) / 1000);
+    document.getElementById('countdown-timer').textContent =
+      String(mins).padStart(2,'0') + ':' + String(secs).padStart(2,'0');
+  }, 1000);
+}
+
+// ── SET STATUS ────────────────────────────────────────
+function setStatus(status) {
+  const dot = document.getElementById('status-dot');
+  const txt = document.getElementById('status-text');
+  dot.className = 'pulse-dot';
+  if (status === 'active') { dot.classList.add(''); txt.textContent = 'Live'; }
+  else if (status === 'loading') { dot.classList.add('loading'); txt.textContent = 'Scanning'; }
+  else { dot.classList.add('idle'); txt.textContent = 'Idle'; }
+}
+
+// ── FETCH FLIGHTS (AI-powered) ────────────────────────
+async function fetchFlights() {
+  if (STATE.isFetching) return;
+  STATE.isFetching = true;
+  setStatus('loading');
+
+  const btn = document.getElementById('refresh-btn');
+  btn.classList.add('spinning');
+
+  // Show skeletons
+  document.getElementById('flight-cards').innerHTML = `
+    <div class="skeleton-card">
+      <div class="skel skel-lg"></div><div class="skel skel-sm"></div>
+      <div class="skel-row"><div class="skel skel-col"></div><div class="skel skel-col"></div></div>
+    </div>
+    <div class="skeleton-card">
+      <div class="skel skel-lg"></div><div class="skel skel-sm"></div>
+      <div class="skel-row"><div class="skel skel-col"></div><div class="skel skel-col"></div></div>
+    </div>`;
+  document.getElementById('last-updated-text').textContent = 'Searching flights via AI...';
+
+  try {
+    const travelMonths = getTravelMonthRange();
+    const prompt = buildFlightPrompt(travelMonths);
+    const data = await callClaudeWithSearch(prompt);
+    const parsed = parseFlightData(data);
+
+    STATE.prices = parsed;
+    STATE.lastFetch = new Date();
+
+    // Save history
+    saveHistory(parsed);
+    renderPriceCards(parsed);
+    renderHistoryLog();
+    renderHistoryChart();
+    checkAlerts(parsed);
+
+    const timeStr = STATE.lastFetch.toLocaleTimeString('en-NZ', {hour:'2-digit', minute:'2-digit'});
+    document.getElementById('last-updated-text').textContent = `Last updated: ${timeStr} NZST`;
+    setStatus('active');
+    setTimeout(() => setStatus('idle'), 3000);
+
+  } catch (err) {
+    console.error('Fetch error:', err);
+    document.getElementById('flight-cards').innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">⚡</div>
+        <div>Could not fetch prices.<br>Check your connection and try again.</div>
+        <div style="margin-top:10px;font-size:11px;color:var(--text3);font-family:'Space Mono',monospace;">${err.message}</div>
+      </div>`;
+    document.getElementById('last-updated-text').textContent = 'Fetch failed. Retrying at next interval.';
+    setStatus('idle');
+  }
+
+  btn.classList.remove('spinning');
+  STATE.isFetching = false;
+}
+
+// ── TRAVEL MONTH RANGE ────────────────────────────────
+function getTravelMonthRange() {
+  const months = [];
+  const now = new Date();
+  const window = STATE.settings.travelWindow;
+  for (let i = 1; i <= window; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    months.push(d.toLocaleString('en', { month: 'long', year: 'numeric' }));
+  }
+  return months;
+}
+
+// ── BUILD PROMPT ──────────────────────────────────────
+function buildFlightPrompt(travelMonths) {
+  const windowStr = travelMonths.join(', ');
+  return `You are a flight price research assistant. Use web search to find current cheapest flight prices.
+
+Search for current cheapest return flights:
+1. Auckland (AKL) to Bengaluru (BLR), India
+2. Auckland (AKL) to Chennai (MAA), India
+
+Travel window: ${windowStr}
+Search for the cheapest economy class return fares available right now.
+
+Search Google Flights, Skyscanner, or airline websites for current prices.
+
+Respond ONLY in this exact JSON format (no markdown, no extra text):
+{
+  "blr": {
+    "price_nzd": <number or null>,
+    "price_usd": <number or null>,
+    "airline": "<main airline or 'Multiple'>",
+    "stops": "<e.g. '1 stop via SIN'>",
+    "duration": "<e.g. '18h 30m'>",
+    "cheapest_date": "<e.g. 'Jun 15'>",
+    "trend": "<'up'|'down'|'stable'>",
+    "source": "<website name>",
+    "notes": "<brief note about the deal or data>"
+  },
+  "maa": {
+    "price_nzd": <number or null>,
+    "price_usd": <number or null>,
+    "airline": "<main airline or 'Multiple'>",
+    "stops": "<e.g. '1 stop via SIN'>",
+    "duration": "<e.g. '20h 45m'>",
+    "cheapest_date": "<e.g. 'Jul 3'>",
+    "trend": "<'up'|'down'|'stable'>",
+    "source": "<website name>",
+    "notes": "<brief note>"
+  },
+  "fetched_at": "<ISO datetime>",
+  "currency_note": "<any relevant currency note>"
+}`;
+}
+
+// ── CALL CLAUDE API ───────────────────────────────────
+async function callClaudeWithSearch(prompt) {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1000,
+      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+      messages: [{ role: 'user', content: prompt }]
+    })
+  });
+
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error?.message || 'API error ' + response.status);
+  }
+
+  const data = await response.json();
+  // Extract text from all content blocks
+  const fullText = data.content
+    .map(b => b.type === 'text' ? b.text : '')
+    .filter(Boolean)
+    .join('\n');
+
+  return fullText;
+}
+
+// ── PARSE RESPONSE ────────────────────────────────────
+function parseFlightData(raw) {
+  try {
+    // Strip markdown fences
+    const clean = raw.replace(/```json|```/g, '').trim();
+    // Find JSON object
+    const jsonMatch = clean.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('No JSON found in response');
+    const parsed = JSON.parse(jsonMatch[0]);
+    return parsed;
+  } catch (e) {
+    console.warn('Parse error, using fallback:', e);
+    // Return a structured fallback with the raw text as notes
+    return {
+      blr: { price_nzd: null, price_usd: null, airline: 'Unknown', stops: '--', duration: '--', cheapest_date: '--', trend: 'stable', source: 'AI', notes: 'Could not parse price data. Raw: ' + raw.slice(0, 100) },
+      maa: { price_nzd: null, price_usd: null, airline: 'Unknown', stops: '--', duration: '--', cheapest_date: '--', trend: 'stable', source: 'AI', notes: 'Could not parse price data.' },
+      fetched_at: new Date().toISOString()
+    };
+  }
+}
+
+// ── RENDER CARDS ──────────────────────────────────────
+function renderPriceCards(data) {
+  const container = document.getElementById('flight-cards');
+  container.innerHTML = '';
+
+  ['blr', 'maa'].forEach((dest, i) => {
+    const route = ROUTES[dest];
+    const info = data[dest] || {};
+    const prevHistory = STATE.history.slice(-5).filter(h => h[dest]);
+    const prevPrice = prevHistory.length > 1 ? prevHistory[prevHistory.length - 2]?.[dest]?.price_nzd : null;
+    const currPrice = info.price_nzd;
+
+    let changeHtml = '<span class="price-change same">— no change</span>';
+    if (prevPrice && currPrice) {
+      const diff = currPrice - prevPrice;
+      const pct = ((diff / prevPrice) * 100).toFixed(1);
+      if (diff > 0) changeHtml = `<span class="price-change up">▲ +NZD ${diff.toFixed(0)} (${pct}%)</span>`;
+      else if (diff < 0) changeHtml = `<span class="price-change down">▼ NZD ${Math.abs(diff).toFixed(0)} (${pct}%)</span>`;
+    }
+
+    const isGoodDeal = currPrice && currPrice < STATE.alerts[dest].threshold;
+    const trendIcon = info.trend === 'down' ? '↘' : info.trend === 'up' ? '↗' : '→';
+    const trendColor = info.trend === 'down' ? 'var(--green)' : info.trend === 'up' ? 'var(--red)' : 'var(--text3)';
+
+    const priceDisplay = currPrice ? `<span class="currency">NZD </span>${currPrice.toLocaleString()}` : '<span style="font-size:16px;color:var(--text3)">Price unavailable</span>';
+
+    const card = document.createElement('div');
+    card.className = 'flight-card' + (isGoodDeal ? ' deal' : '');
+    card.style.animationDelay = (i * 0.1) + 's';
+    card.innerHTML = `
+      <div class="card-top">
+        <div class="route-label">
+          <div>
+            <div class="dest-badge">${route.emoji} ${route.code}</div>
+            <div class="dest-name">${route.city}, ${route.country}</div>
+          </div>
+        </div>
+        <div class="price-block">
+          <div class="price-main">${priceDisplay}</div>
+          ${changeHtml}
+        </div>
+      </div>
+      <div class="card-details">
+        <div class="detail-item">
+          <div class="detail-label">Best On</div>
+          <div class="detail-value highlight">${info.cheapest_date || '--'}</div>
+        </div>
+        <div class="detail-item">
+          <div class="detail-label">Duration</div>
+          <div class="detail-value">${info.duration || '--'}</div>
+        </div>
+        <div class="detail-item">
+          <div class="detail-label">Routing</div>
+          <div class="detail-value">${info.stops || '--'}</div>
+        </div>
+        <div class="detail-item">
+          <div class="detail-label">Trend <span style="color:${trendColor}">${trendIcon}</span></div>
+          <div class="detail-value">${info.trend || '--'}</div>
+        </div>
+      </div>
+      <div class="card-footer">
+        <div>
+          <span class="airline-tag">${info.airline || 'Unknown'}</span>
+          ${isGoodDeal ? '<span class="deal-badge" style="margin-left:6px;">🔥 DEAL</span>' : ''}
+        </div>
+        <a href="https://www.google.com/travel/flights?q=flights+AKL+to+${route.code}" target="_blank" class="check-link">
+          Book now →
+        </a>
+      </div>
+      ${info.notes ? `<div style="margin-top:10px;font-size:11px;color:var(--text3);line-height:1.5;font-family:'Space Mono',monospace;border-top:1px solid var(--border);padding-top:10px;">💡 ${info.notes}</div>` : ''}
+    `;
+    container.appendChild(card);
+  });
+}
+
+// ── CHECK ALERTS ──────────────────────────────────────
+function checkAlerts(data) {
+  ['blr', 'maa'].forEach(dest => {
+    const alert = STATE.alerts[dest];
+    const info = data[dest];
+    if (!alert.enabled || !info?.price_nzd) return;
+    if (info.price_nzd < alert.threshold) {
+      const route = ROUTES[dest];
+      sendNotification(
+        `✈ Price Alert — AKL → ${route.code}`,
+        `Fare dropped to NZD ${info.price_nzd.toLocaleString()}! (Your target: NZD ${alert.threshold})`
+      );
+      showToast(`🔔 Price alert! AKL→${dest.toUpperCase()}: NZD ${info.price_nzd.toLocaleString()}`, 'success');
+    }
+  });
+}
+
+// ── SAVE HISTORY ──────────────────────────────────────
+function saveHistory(data) {
+  const entry = {
+    ts: new Date().toISOString(),
+    blr: data.blr ? { price_nzd: data.blr.price_nzd } : null,
+    maa: data.maa ? { price_nzd: data.maa.price_nzd } : null,
+  };
+  STATE.history.push(entry);
+  // Keep last 50 entries
+  if (STATE.history.length > 50) STATE.history = STATE.history.slice(-50);
+  localStorage.setItem('sw_history', JSON.stringify(STATE.history));
+}
+
+// ── RENDER HISTORY LOG ────────────────────────────────
+function renderHistoryLog() {
+  const container = document.getElementById('history-log');
+  if (STATE.history.length === 0) {
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div>No history yet.</div>';
+    return;
+  }
+  const recent = [...STATE.history].reverse().slice(0, 10);
+  container.innerHTML = recent.map(h => {
+    const t = new Date(h.ts).toLocaleString('en-NZ', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+    const blrStr = h.blr?.price_nzd ? `BLR: NZD ${h.blr.price_nzd.toLocaleString()}` : 'BLR: N/A';
+    const maaStr = h.maa?.price_nzd ? `MAA: NZD ${h.maa.price_nzd.toLocaleString()}` : 'MAA: N/A';
+    return `<div class="alert-card" style="margin-bottom:8px;padding:12px 14px;">
+      <div style="font-size:11px;color:var(--text3);font-family:'Space Mono',monospace;min-width:100px;">${t}</div>
+      <div style="flex:1;font-size:12px;color:var(--text2);font-family:'Space Mono',monospace;line-height:1.6;">${blrStr}<br>${maaStr}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── RENDER HISTORY CHART ──────────────────────────────
+function renderHistoryChart() {
+  const canvas = document.getElementById('priceChart');
+  if (!canvas) return;
+
+  const recent = STATE.history.slice(-7);
+  if (recent.length < 2) {
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#3d5a7a';
+    ctx.font = '13px Space Mono';
+    ctx.textAlign = 'center';
+    ctx.fillText('Not enough data yet', canvas.width/2, 80);
+    return;
+  }
+
+  const labels = recent.map(h => {
+    const d = new Date(h.ts);
+    return d.toLocaleString('en',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false});
+  });
+  const blrPrices = recent.map(h => h.blr?.price_nzd || null);
+  const maaPrices = recent.map(h => h.maa?.price_nzd || null);
+
+  if (STATE.chart) { STATE.chart.destroy(); }
+
+  const ctx = canvas.getContext('2d');
+  STATE.chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'AKL → BLR',
+          data: blrPrices,
+          borderColor: '#3b9eff',
+          backgroundColor: 'rgba(59,158,255,0.08)',
+          pointBackgroundColor: '#3b9eff',
+          borderWidth: 2,
+          pointRadius: 4,
+          tension: 0.4,
+          fill: true,
+          spanGaps: true,
+        },
+        {
+          label: 'AKL → MAA',
+          data: maaPrices,
+          borderColor: '#f5c842',
+          backgroundColor: 'rgba(245,200,66,0.06)',
+          pointBackgroundColor: '#f5c842',
+          borderWidth: 2,
+          pointRadius: 4,
+          tension: 0.4,
+          fill: true,
+          spanGaps: true,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          labels: { color: '#7a9abf', font: { family: 'Space Mono', size: 11 }, boxWidth: 12, padding: 16 }
+        },
+        tooltip: {
+          backgroundColor: '#111c30',
+          borderColor: 'rgba(99,179,255,0.22)',
+          borderWidth: 1,
+          titleColor: '#e8f0ff',
+          bodyColor: '#7a9abf',
+          callbacks: {
+            label: ctx => ` NZD ${ctx.raw?.toLocaleString() || 'N/A'}`,
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#3d5a7a', font: { family: 'Space Mono', size: 9 }, maxRotation: 30 },
+          grid: { color: 'rgba(99,179,255,0.06)' }
+        },
+        y: {
+          ticks: {
+            color: '#3d5a7a', font: { family: 'Space Mono', size: 10 },
+            callback: v => 'NZD ' + v.toLocaleString()
+          },
+          grid: { color: 'rgba(99,179,255,0.06)' }
+        }
+      }
+    }
+  });
+}
+
+// ── VISIBILITY CHANGE — refetch when app reopened ─────
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && STATE.lastFetch) {
+    const age = Date.now() - STATE.lastFetch.getTime();
+    if (age > 10 * 60 * 1000) fetchFlights(); // refetch if >10 min
+  }
+});
+</script>
+</body>
+</html>
